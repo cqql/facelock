@@ -1,0 +1,8 @@
+# Build artifacts and cache directories
+.gradle
+gradle
+gradlew
+gradlew.bat
+/build
+/captures
+.externalNativeBuild
