@@ -3,6 +3,7 @@ package de.cqql.facelock
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
 import android.hardware.camera2.*
@@ -16,6 +17,8 @@ import android.support.v7.app.AppCompatActivity
 import android.util.Log
 import android.view.View
 import android.widget.Toast
+import com.google.android.gms.vision.Frame
+import com.google.android.gms.vision.face.FaceDetector
 import kotlinx.android.synthetic.main.activity_main.*
 import java.lang.IllegalArgumentException
 
@@ -23,6 +26,7 @@ class MainActivity : AppCompatActivity() {
     var bgThread: HandlerThread? = null
     var handler: Handler? = null
     var reader: ImageReader? = null
+    lateinit var detector: FaceDetector
 
     val cameraCallback = object : CameraDevice.StateCallback() {
         override fun onOpened(camera: CameraDevice) {
@@ -67,15 +71,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     val imageListener = ImageReader.OnImageAvailableListener {
+        // Decode the JPEG into a bitmap
         val image = it.acquireLatestImage()
         val buffer = image.planes[0].buffer
         val bytes = ByteArray(buffer.remaining())
         buffer.get(bytes)
         val bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 
+        // Detect faces
+        val frame = Frame.Builder().setBitmap(bm).build()
+        val sparseFaces = detector.detect(frame)
+        val nfaces = sparseFaces.size()
+        val faces = Array(nfaces) { sparseFaces.valueAt(it) }
+
+        // Select largest face as most likely phone owner
+        val face = faces.maxBy { it.height * it.width }
+        if (face == null) {
+            feedback("Did not detect a face")
+            return@OnImageAvailableListener
+        }
+        val faceCrop = Bitmap.createBitmap(bm,
+                face.position.x.toInt(), face.position.y.toInt(),
+                face.width.toInt(), face.height.toInt())
+
         val h = Handler(mainLooper)
         h.post {
-            imageView.setImageBitmap(bm)
+            imageView.setImageBitmap(faceCrop)
         }
     }
 
@@ -91,6 +112,12 @@ class MainActivity : AppCompatActivity() {
                 authenticateUser()
             }
         })
+
+        detector = FaceDetector.Builder(this).build()
+
+        if (!detector.isOperational) {
+            feedback("Could not initialize face detection")
+        }
     }
 
     override fun onResume() {
