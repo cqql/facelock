@@ -15,4 +15,20 @@
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <Button
+        android:id="@+id/auth"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Authenticate me"
+        tools:layout_editor_absoluteX="117dp"
+        tools:layout_editor_absoluteY="333dp" />
+
+    <ImageView
+        android:id="@+id/imageView"
+        android:layout_width="184dp"
+        android:layout_height="159dp"
+        app:srcCompat="@color/colorAccent"
+        tools:layout_editor_absoluteX="100dp"
+        tools:layout_editor_absoluteY="33dp" />
+
 </android.support.constraint.ConstraintLayout>
