@@ -20,13 +20,17 @@ import android.widget.Toast
 import com.google.android.gms.vision.Frame
 import com.google.android.gms.vision.face.FaceDetector
 import kotlinx.android.synthetic.main.activity_main.*
+import org.tensorflow.contrib.android.TensorFlowInferenceInterface
 import java.lang.IllegalArgumentException
+import kotlin.math.max
+import kotlin.math.sqrt
 
 class MainActivity : AppCompatActivity() {
     var bgThread: HandlerThread? = null
     var handler: Handler? = null
     var reader: ImageReader? = null
     lateinit var detector: FaceDetector
+    var inference: TensorFlowInferenceInterface? = null
 
     val cameraCallback = object : CameraDevice.StateCallback() {
         override fun onOpened(camera: CameraDevice) {
@@ -94,6 +98,8 @@ class MainActivity : AppCompatActivity() {
                 face.position.x.toInt(), face.position.y.toInt(),
                 face.width.toInt(), face.height.toInt())
 
+        identifyFace(faceCrop)
+
         val h = Handler(mainLooper)
         h.post {
             imageView.setImageBitmap(faceCrop)
@@ -117,6 +123,12 @@ class MainActivity : AppCompatActivity() {
 
         if (!detector.isOperational) {
             feedback("Could not initialize face detection")
+        }
+
+        try {
+            inference = TensorFlowInferenceInterface(this.assets, "facenet.pb")
+        } catch (e: RuntimeException) {
+            feedback("Could not load face recognition engine", e)
         }
     }
 
@@ -142,6 +154,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        inference?.close()
+
         ScreenOnReceiver.unregister(this)
 
         super.onDestroy()
@@ -196,6 +210,46 @@ class MainActivity : AppCompatActivity() {
         }
 
         manager.openCamera(frontId, cameraCallback, handler)
+    }
+
+    fun identifyFace(face: Bitmap): Boolean {
+        val engine = inference
+        if (engine == null) {
+            feedback("There is no recognition engine loaded")
+            return false
+        }
+
+        // Convert bitmap into a (160, 160, 3) float tensor
+        val resized = Bitmap.createScaledBitmap(face, 160, 160, true)
+        val ints = IntArray(160 * 160)
+        resized.getPixels(ints, 0, resized.width, 0, 0, resized.width, resized.height)
+        val floats = FloatArray(160 * 160 * 3)
+        for (i in 0 until ints.size) {
+            val j = 3 * i
+            val k = ints[i]
+            floats[j + 0] = ((k shr 0xF0) and 0xFF).toFloat()
+            floats[j + 1] = ((k shr 0x08) and 0xFF).toFloat()
+            floats[j + 2] = ((k shr 0x00) and 0xFF).toFloat()
+        }
+
+        // Normalize the image
+        val mu = floats.reduce { a, b -> a + b } / floats.size
+        val std = max(
+                sqrt(floats.map { it - mu }.map { it * it }.reduce { a, b -> a + b } / floats.size),
+                1.0f / sqrt(floats.size.toFloat()))
+        val input = floats.map { (it - mu) / std }.toFloatArray()
+
+        // Compute the embedding
+        // TODO: Set phase_train to false
+        //engine.feed("phase_train", arrayOf(false), 1)
+        engine.feed("input", input, 1, 160, 160, 3)
+        engine.run(arrayOf("embeddings"))
+        val embedding = FloatArray(128)
+        engine.fetch("embeddings", embedding)
+
+        Log.d(TAG, embedding.joinToString())
+
+        return false
     }
 
     fun feedback(msg: String, e: Exception? = null) {
